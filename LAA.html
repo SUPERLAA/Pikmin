@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pikmin GPX 簡易版 v2</title>
+<style>
+:root{--bg:#fff8f1;--card:#fff;--ink:#2b2b2b;--muted:#6b6b6b;--accent:#f08a24;--line:#ead9c8}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,"Noto Sans TC","Segoe UI",sans-serif;background:var(--bg);color:var(--ink)}
+header{text-align:center;padding:20px 14px 8px}h1{margin:0 0 6px;font-size:23px}.sub{color:var(--muted);font-size:14px;line-height:1.5}
+main{max-width:780px;margin:0 auto;padding:12px}.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px;box-shadow:0 4px 18px rgba(80,50,20,.07);margin-bottom:12px}
+label{display:block;font-weight:800;margin:12px 0 6px}textarea,select,input{width:100%;border:1px solid var(--line);border-radius:12px;padding:11px;font-size:16px;background:#fff}
+textarea{min-height:210px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;line-height:1.45}
+button{width:100%;border:0;border-radius:14px;padding:14px 16px;font-size:17px;font-weight:900;color:white;background:var(--accent);cursor:pointer}
+button.secondary{background:#6d6d6d}.small{font-size:15px;padding:11px 12px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+.status{white-space:pre-wrap;background:#fffaf5;border:1px dashed var(--line);border-radius:12px;padding:12px;font-size:14px;color:#4a3a2a}
+.hint{color:var(--muted);font-size:13px;line-height:1.55;margin-top:8px}summary{cursor:pointer;font-weight:800;color:#805020}
+@media(max-width:680px){.grid,.grid3{grid-template-columns:1fr}h1{font-size:21px}}
+</style></head>
+<body><header><h1>🌼 Pikmin GPX 簡易版 v2</h1><div class="sub">貼座標 → 選模式 → 預覽距離/點數 → 下載 GPX；下載後會顯示座標所在國家。</div></header>
+<main><section class="card">
+<label for="coords">座標</label>
+<textarea id="coords" placeholder="一行一個座標，例如：
+23.4791234, 120.4495678
+23.4801234, 120.4505678
+23.4811234, 120.4515678"></textarea>
+<div class="hint">支援多行座標；每行只要有「緯度, 經度」就可以。</div>
+
+<label for="mode">模式</label>
+<select id="mode" onchange="previewRoute(false)">
+<option value="fruit_touch">採果加強：每個座標附近小繞圈</option>
+<option value="fruit">一般採果：照座標直連</option>
+<option value="edge18_touch">採大果擦邊加強：18m 偏移＋小繞圈</option>
+<option value="edge18">採大果擦邊：18m 偏移直連</option>
+<option value="flower2">種大花二輪：每朵 30m 繞圈，整條 2 輪</option>
+<option value="spiral">單點螺旋種花：外圈收內圈</option>
+<option value="heart">心形路線：以第一個座標為中心畫愛心</option>
+<option value="heart2">心形二輪：大小兩圈愛心</option>
+</select>
+
+<div class="grid3">
+<div><label for="filename">檔名</label><input id="filename" value="pikmin_route.gpx"></div>
+<div><label for="speed">速度 km/h</label><input id="speed" type="number" min="1" max="20" step="0.5" value="10" oninput="previewRoute(false)"></div>
+<div><label for="heartSize">心形寬度 m</label><input id="heartSize" type="number" min="40" max="500" step="10" value="160" oninput="previewRoute(false)"></div>
+</div>
+
+<div class="grid" style="margin-top:14px"><button onclick="previewRoute(true)">產生前預覽</button><button onclick="makeGPX()">下載 GPX</button></div>
+<div class="grid" style="margin-top:10px"><button class="secondary small" onclick="previewCoords()">檢查座標</button><button class="secondary small" onclick="clearAll()">清空</button></div>
+</section>
+
+<section class="card"><label>結果</label><div id="status" class="status">還沒產生。</div>
+<details><summary>模式怎麼選？</summary><div class="hint">
+<p><b>採果加強</b>：最推薦先用。每個點附近小繞一下，比較不會只是旁邊經過。</p>
+<p><b>採大果擦邊加強</b>：採大果優先測這個。先做 18m 擦邊，再小繞一下。</p>
+<p><b>心形路線</b>：用第一個座標當中心畫愛心。可調「心形寬度 m」。</p>
+<p><b>顯示國家</b>：產生 GPX 後，用第一個座標連線反查國家。需要網路。</p>
+</div></details></section></main>
+
+<script>
+function parseCoords(text){
+ const pts=[],seen=new Set(),lines=text.replace(/\u3000/g," ").split(/\n+/);
+ for(const line of lines){
+  const nums=line.match(/-?\d+(?:\.\d+)?/g); if(!nums||nums.length<2)continue;
+  for(let i=0;i<nums.length-1;i++){
+   const lat=parseFloat(nums[i]),lon=parseFloat(nums[i+1]);
+   if(Number.isFinite(lat)&&Number.isFinite(lon)&&Math.abs(lat)<=90&&Math.abs(lon)<=180){
+    const key=lat.toFixed(7)+","+lon.toFixed(7);
+    if(!seen.has(key)){seen.add(key);pts.push({lat,lon})} break;
+   }
+  }
+ }
+ return pts;
+}
+function metersToLat(m){return m/111320}
+function metersToLon(m,lat){return m/(111320*Math.cos(lat*Math.PI/180))}
+function offsetPoint(p,e,n){return{lat:p.lat+metersToLat(n),lon:p.lon+metersToLon(e,p.lat)}}
+function distanceM(a,b){const lat=(a.lat+b.lat)/2,dx=(b.lon-a.lon)*111320*Math.cos(lat*Math.PI/180),dy=(b.lat-a.lat)*111320;return Math.hypot(dx,dy)}
+function circleAround(p,r,n,startDeg=0){const arr=[];for(let i=0;i<n;i++){const a=(startDeg+i*360/n)*Math.PI/180;arr.push(offsetPoint(p,Math.cos(a)*r,Math.sin(a)*r))}arr.push(arr[0]);return arr}
+function bearingVector(a,b){const lat=(a.lat+b.lat)/2,dx=(b.lon-a.lon)*111320*Math.cos(lat*Math.PI/180),dy=(b.lat-a.lat)*111320,d=Math.hypot(dx,dy)||1;return{x:dx/d,y:dy/d}}
+function edgeOffsetRoute(pts,off=18){if(pts.length<2)return pts;const out=[];for(let i=0;i<pts.length;i++){let v;if(i===0)v=bearingVector(pts[i],pts[i+1]);else if(i===pts.length-1)v=bearingVector(pts[i-1],pts[i]);else{const v1=bearingVector(pts[i-1],pts[i]),v2=bearingVector(pts[i],pts[i+1]);v={x:v1.x+v2.x,y:v1.y+v2.y};const d=Math.hypot(v.x,v.y)||1;v.x/=d;v.y/=d}out.push(offsetPoint(pts[i],v.y*off,-v.x*off))}return out}
+function touchEachPoint(pts,r=10,n=10){let all=[];for(const p of pts)all=all.concat(circleAround(p,r,n,0));return all}
+function spiralAround(p){const arr=[],turns=3.2,steps=95,outer=32,inner=12;for(let i=0;i<=steps;i++){const t=i/steps,r=outer+(inner-outer)*t,a=t*turns*2*Math.PI;arr.push(offsetPoint(p,Math.cos(a)*r,Math.sin(a)*r))}return arr}
+function heartAround(c,width=160,points=120){const raw=[];let minX=Infinity,maxX=-Infinity;for(let i=0;i<=points;i++){const t=Math.PI-(i/points)*2*Math.PI,x=16*Math.pow(Math.sin(t),3),y=13*Math.cos(t)-5*Math.cos(2*t)-2*Math.cos(3*t)-Math.cos(4*t);raw.push({x,y});minX=Math.min(minX,x);maxX=Math.max(maxX,x)}const scale=width/(maxX-minX);return raw.map(r=>offsetPoint(c,r.x*scale,r.y*scale))}
+function buildRoute(pts,mode){const hs=parseFloat(document.getElementById("heartSize").value)||160;if(mode==="fruit")return pts;if(mode==="fruit_touch")return touchEachPoint(pts,10,10);if(mode==="edge18")return edgeOffsetRoute(pts,18);if(mode==="edge18_touch")return touchEachPoint(edgeOffsetRoute(pts,18),10,10);if(mode==="spiral"){let all=[];for(const p of pts)all=all.concat(spiralAround(p));return all}if(mode==="flower2"){let all=[];for(let round=0;round<2;round++){const r=round===0?30:26,start=round===0?0:17;for(const p of pts)all=all.concat(circleAround(p,r,24,start))}return all}if(mode==="heart")return heartAround(pts[0],hs,120);if(mode==="heart2")return heartAround(pts[0],hs,120).concat(heartAround(pts[0],hs*.72,100));return pts}
+function routeStats(route,speed){let total=0;for(let i=1;i<route.length;i++)total+=distanceM(route[i-1],route[i]);return{total,minutes:total/Math.max(.5,speed/3.6)/60}}
+function escXml(s){return String(s).replace(/[<>&'"]/g,c=>({"<":"&lt;",">":"&gt;","&":"&amp;","'":"&apos;",'"':"&quot;"}[c]))}
+function gpxFor(route,name,speed){const start=new Date();let seconds=0,last=null;const trkpts=route.map(p=>{if(last)seconds+=distanceM(last,p)/Math.max(.5,speed/3.6);last=p;const t=new Date(start.getTime()+seconds*1000).toISOString();return `      <trkpt lat="${p.lat.toFixed(7)}" lon="${p.lon.toFixed(7)}"><time>${t}</time></trkpt>`}).join("\n");return `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="Pikmin GPX 簡易版 v2" xmlns="http://www.topografix.com/GPX/1/1">
+  <metadata><name>${escXml(name)}</name><time>${new Date().toISOString()}</time></metadata>
+  <trk><name>${escXml(name)}</name><trkseg>
+${trkpts}
+  </trkseg></trk>
+</gpx>`}
+function downloadText(filename,text){const blob=new Blob([text],{type:"application/gpx+xml;charset=utf-8"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=filename.endsWith(".gpx")?filename:filename+".gpx";document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},500)}
+function validateMode(pts,mode){if(!pts.length)return"沒有讀到座標。";if((mode==="edge18"||mode==="edge18_touch")&&pts.length<2)return"採大果擦邊至少需要 2 個座標。";return""}
+function previewCoords(){const pts=parseCoords(document.getElementById("coords").value),st=document.getElementById("status");if(!pts.length){st.textContent="沒有讀到座標。";return}st.textContent="抓到 "+pts.length+" 個座標：\n"+pts.map((p,i)=>`${i+1}. ${p.lat.toFixed(7)}, ${p.lon.toFixed(7)}`).join("\n")}
+function previewRoute(force){const pts=parseCoords(document.getElementById("coords").value),mode=document.getElementById("mode").value,speed=parseFloat(document.getElementById("speed").value)||10,st=document.getElementById("status"),err=validateMode(pts,mode);if(err){if(force)st.textContent=err;return null}const route=buildRoute(pts,mode),s=routeStats(route,speed),text=`產生前預覽\n原始座標：${pts.length} 點\nGPX 路線點：${route.length} 點\n估計距離：約 ${(s.total/1000).toFixed(2)} km\n估計時間：約 ${s.minutes.toFixed(1)} 分鐘（速度 ${speed} km/h）\n模式：${document.getElementById("mode").selectedOptions[0].textContent}`;if(force)st.textContent=text;return{pts,route,stats:s,text}}
+async function countryForCoord(p){const url=`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${p.lat}&lon=${p.lon}&zoom=10&addressdetails=1`;const res=await fetch(url,{headers:{"Accept":"application/json"}});if(!res.ok)throw new Error("HTTP "+res.status);const data=await res.json(),a=data.address||{};return{country:a.country||"查不到國家",near:a.city||a.town||a.village||a.municipality||a.county||a.state||""}}
+async function makeGPX(){const filename=document.getElementById("filename").value.trim()||"pikmin_route.gpx",speed=parseFloat(document.getElementById("speed").value)||10,st=document.getElementById("status"),pv=previewRoute(false);if(!pv){const pts=parseCoords(document.getElementById("coords").value);st.textContent=validateMode(pts,document.getElementById("mode").value)||"無法產生。";return}downloadText(filename,gpxFor(pv.route,filename,speed));st.textContent=`完成下載！\n原始座標：${pv.pts.length} 點\nGPX 路線點：${pv.route.length} 點\n估計距離：約 ${(pv.stats.total/1000).toFixed(2)} km\n估計時間：約 ${pv.stats.minutes.toFixed(1)} 分鐘（速度 ${speed} km/h）\n模式：${document.getElementById("mode").selectedOptions[0].textContent}\n國家：查詢中…`;try{const geo=await countryForCoord(pv.pts[0]);st.textContent=`完成下載！\n原始座標：${pv.pts.length} 點\nGPX 路線點：${pv.route.length} 點\n估計距離：約 ${(pv.stats.total/1000).toFixed(2)} km\n估計時間：約 ${pv.stats.minutes.toFixed(1)} 分鐘（速度 ${speed} km/h）\n模式：${document.getElementById("mode").selectedOptions[0].textContent}\n國家：${geo.country}\n${geo.near?`附近：${geo.near}\n`:""}提示：如果擦邊偏到錯邊，把座標順序反過來再產生一次。`}catch(e){st.textContent+="\n國家：查詢失敗（需要網路，或瀏覽器擋住查詢）"}}
+function clearAll(){document.getElementById("coords").value="";document.getElementById("status").textContent="已清空。"}
+</script></body></html>
